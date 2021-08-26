@@ -72,8 +72,8 @@ public class AccountService {
 
     private AccountInfo payWithDebt(UserMainAccountSummaryEntity payerMainAccountInfo, PayInfo payInfo) throws JsonProcessingException {
         var payerRemaining = payerMainAccountInfo.getDepositsBalance().subtract(payInfo.getAmount());
-        var payerUpdatedBalance = IsMoreThanZero(payerRemaining) ? payerRemaining : BigDecimal.ZERO;
-        var payerUpdatedDebt = IsMoreThanZero(payerRemaining) ?
+        var payerUpdatedBalance = isMoreThanZero(payerRemaining) ? payerRemaining : BigDecimal.ZERO;
+        var payerUpdatedDebt = isMoreThanZero(payerRemaining) ?
                 BigDecimal.ZERO : payerRemaining.add(payerMainAccountInfo.getOutstandingDebt());
         var updatedPayerMainAccountInfo = UserMainAccountSummaryEntity
                 .builder()
@@ -81,7 +81,7 @@ public class AccountService {
                 .userName(payInfo.getFromName())
                 .depositsBalance(payerUpdatedBalance)
                 .outstandingDebt(payerUpdatedDebt)
-                .creditor(IsMoreThanOrEqualToZero(payerUpdatedDebt) ? "" : payerMainAccountInfo.getCreditor())
+                .creditor(isMoreThanOrEqualToZero(payerUpdatedDebt) ? "" : payerMainAccountInfo.getCreditor())
                 .build();
         mainAccountSummaryRepo.save(updatedPayerMainAccountInfo);
 
@@ -124,7 +124,7 @@ public class AccountService {
                                                                              BigDecimal receivedAmount,
                                                                              BigDecimal receivedDebt) {
         var receiverMainAccountInfo = mainAccountSummaryRepo.findByUserName(receivedName);
-        var hasDebt = IsLessThanZero(receiverMainAccountInfo.getOutstandingDebt());
+        var hasDebt = isLessThanZero(receiverMainAccountInfo.getOutstandingDebt());
         BigDecimal receiverUpdateDebt;
         BigDecimal receiverUpdatedBalance;
         if (hasDebt) {
@@ -140,7 +140,7 @@ public class AccountService {
                 .userName(receivedName)
                 .depositsBalance(receiverUpdatedBalance)
                 .outstandingDebt(receiverUpdateDebt)
-                .creditor(IsMoreThanOrEqualToZero(receiverUpdateDebt) ? "" : receiverMainAccountInfo.getCreditor()).build();
+                .creditor(isMoreThanOrEqualToZero(receiverUpdateDebt) ? "" : receiverMainAccountInfo.getCreditor()).build();
     }
 
     private void savePayTransactionSummary(PayInfo payInfo) throws JsonProcessingException {
@@ -243,15 +243,15 @@ public class AccountService {
         return mainAccountInfo;
     }
 
-    private Boolean IsMoreThanZero(BigDecimal amount) {
+    private Boolean isMoreThanZero(BigDecimal amount) {
         return amount.compareTo(BigDecimal.ZERO) > 0;
     }
 
-    private Boolean IsMoreThanOrEqualToZero(BigDecimal amount) {
+    private Boolean isMoreThanOrEqualToZero(BigDecimal amount) {
         return amount.compareTo(BigDecimal.ZERO) >= 0;
     }
 
-    private Boolean IsLessThanZero(BigDecimal amount) {
+    private Boolean isLessThanZero(BigDecimal amount) {
         return amount.compareTo(BigDecimal.ZERO) < 0;
     }
 }
