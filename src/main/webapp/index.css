@@ -1,10 +1,15 @@
 .center-box {
     margin: auto;
-    width: 20%;
+    width: 15%;
     border: 3px solid #73AD21;
     padding: 10px;
 }
 
 .div-common {
     padding: 3px;
+    text-align: center;
+}
+
+.center-box {
+    text-align: center;
 }

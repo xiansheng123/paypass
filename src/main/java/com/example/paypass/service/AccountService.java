@@ -49,6 +49,7 @@ public class AccountService {
 
     @Transient
     public AccountInfo topUpMoney(TopupInfo topupInfo) throws JsonProcessingException {
+
         var payerMainAccountInfo = mainAccountSummaryRepo.findByUserName(topupInfo.getName());
         // 1 no debt
         if (payerMainAccountInfo.getOutstandingDebt().compareTo(BigDecimal.ZERO) >= 0) {
@@ -60,15 +61,8 @@ public class AccountService {
 
     @Transient
     public AccountInfo payMoneyV2(PayInfo payInfo) {
+        validUserInfoForPay(payInfo);
         var payerMainAccountInfo = mainAccountSummaryRepo.findByUserName(payInfo.getFromName());
-        if (isLessThanOrEqualToZero(payerMainAccountInfo.getDepositsBalance())) {
-            throw new BusinessException("please topup firstly,thanks");
-        }
-
-        if (payInfo.getToName().equals(payInfo.getFromName())) {
-            throw new BusinessException("fromUser cannot be the same with toUser,thanks");
-        }
-
         BigDecimal receivedAmount;
         BigDecimal receivedDebt;// should be negative;
         BigDecimal payBalance;
@@ -114,6 +108,36 @@ public class AccountService {
         var receiverUpdatedAccountInfo = getReceiverUpdatedAccountInfoForPayV2(payInfo.getToName(), receivedAmount, receivedDebt);
         mainAccountSummaryRepo.save(receiverUpdatedAccountInfo);
         return updatedPayerMainAccountInfo.toModel();
+    }
+
+    private void validUserInfoForPay(PayInfo payInfo) {
+        var payerMainAccountInfo = mainAccountSummaryRepo.findByUserName(payInfo.getFromName());
+        if (!userService.isValidUser(payInfo.getToName()) || !userService.isValidUser(payInfo.getFromName())) {
+            throw new BusinessException("cannot find this user");
+        }
+
+        if (isLessThanOrEqualToZero(payInfo.getAmount())) {
+            throw new BusinessException("invalid amount in pay function!");
+        }
+
+        if (isLessThanOrEqualToZero(payerMainAccountInfo.getDepositsBalance())) {
+            throw new BusinessException("please topup firstly,thanks");
+        }
+
+        if (payInfo.getToName().equals(payInfo.getFromName())) {
+            throw new BusinessException("fromUser cannot be the same with toUser,thanks");
+        }
+    }
+
+    private void validUserInfoForTopup(TopupInfo topupInfo) {
+        if (!userService.isValidUser(topupInfo.getName())) {
+            throw new BusinessException("cannot find this user");
+        }
+
+
+        if (isLessThanOrEqualToZero(topupInfo.getAmount())) {
+            throw new BusinessException("invalid amount in topup function!");
+        }
     }
 
     private String getCreditorForPayer(BigDecimal debt, String OriginalDebtor, String toUser) {
