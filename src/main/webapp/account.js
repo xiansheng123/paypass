@@ -16,7 +16,9 @@ async function pay() {
     const accountInfo = await response.json();
     $('balance').innerText = accountInfo.balance || "0";
     $('debt').innerText = accountInfo.debt || "0";
-    console.warn("test pay");
+    $('update-date').innerText = new Date().toLocaleString();
+    $('creditor').innerText = accountInfo.creditor;
+    console.warn("test topup" + Date());
 }
 
 async function topup() {
@@ -33,17 +35,20 @@ async function topup() {
     const accountInfo = await response.json();
     $('balance').innerText = accountInfo.balance || "0";
     $('debt').innerText = accountInfo.debt || "0";
-    console.warn("test topup");
+    $('update-date').innerText = new Date().toLocaleString();
+    $('creditor').innerText = accountInfo.creditor;
+    console.warn("test topup" + Date().toLocaleString());
 }
 
 (async () => {
-
     let name = new URL(window.location.href).searchParams.get('username');
     $('user-name').innerText = name;
     let resp = await fetch(`http://localhost:8080/paypass/account/${name}`);
     const accountInfo = await resp.json();
     $('balance').innerText = accountInfo.balance || "0";
     $('debt').innerText = accountInfo.debt || "0";
+    $('creditor').innerText = accountInfo.creditor;
+    $('update-date').innerText = new Date().toLocaleString();
 
     $('pay').addEventListener('click', () => pay())
     $('topup').addEventListener('click', () => topup())

@@ -33,7 +33,7 @@ public class AccountController {
     }
 
     @PostMapping("/pay")
-    public AccountInfo recharge(@RequestBody PayInfo payInfo) throws JsonProcessingException {
-        return accountService.payMoney(payInfo);
+    public AccountInfo recharge(@RequestBody PayInfo payInfo) {
+        return accountService.payMoneyV2(payInfo);
     }
 }

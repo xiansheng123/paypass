@@ -32,6 +32,8 @@ public class AccountService {
     private final String ACTION_TOPUP = "Topup";
     private final String ACTION_PAY = "Pay";
 
+    private final BigDecimal zero = BigDecimal.ZERO;
+
     public AccountInfo findAccountByName(String name) {
         if (!userService.isValidUser(name)) {
             throw new BusinessException("cannot find this user");
@@ -57,125 +59,122 @@ public class AccountService {
     }
 
     @Transient
-    public AccountInfo payMoney(PayInfo payInfo) throws JsonProcessingException {
+    public AccountInfo payMoneyV2(PayInfo payInfo) {
         var payerMainAccountInfo = mainAccountSummaryRepo.findByUserName(payInfo.getFromName());
-        if (payerMainAccountInfo.getDepositsBalance().compareTo(BigDecimal.ZERO) <= 0) {
+        if (isLessThanOrEqualToZero(payerMainAccountInfo.getDepositsBalance())) {
             throw new BusinessException("please topup firstly,thanks");
         }
-        // 1 no debt
-        if (payerMainAccountInfo.getOutstandingDebt().compareTo(BigDecimal.ZERO) >= 0) {
-            return payWithoutDebt(payerMainAccountInfo, payInfo);
-        }
-        // 2 with debt
-        return payWithDebt(payerMainAccountInfo, payInfo);
-    }
 
-    private AccountInfo payWithDebt(UserMainAccountSummaryEntity payerMainAccountInfo, PayInfo payInfo) throws JsonProcessingException {
-        var payerRemaining = payerMainAccountInfo.getDepositsBalance().subtract(payInfo.getAmount());
-        var payerUpdatedBalance = isMoreThanZero(payerRemaining) ? payerRemaining : BigDecimal.ZERO;
-        var payerUpdatedDebt = isMoreThanZero(payerRemaining) ?
-                BigDecimal.ZERO : payerRemaining.add(payerMainAccountInfo.getOutstandingDebt());
+        if (payInfo.getToName().equals(payInfo.getFromName())) {
+            throw new BusinessException("fromUser cannot be the same with toUser,thanks");
+        }
+
+        BigDecimal receivedAmount;
+        BigDecimal receivedDebt;// should be negative;
+        BigDecimal payBalance;
+        BigDecimal payDebt;
+        // check debit
+        BigDecimal payerDebt = payerMainAccountInfo.getOutstandingDebt();
+        BigDecimal payerBalance = payerMainAccountInfo.getDepositsBalance();
+        if (isMoreThanZero(payerBalance)) {
+            var payAmountLessThanOrEqualPayDebt = payInfo.getAmount().compareTo(payerDebt) <= 0;
+            if (payAmountLessThanOrEqualPayDebt) {
+                payBalance = payerBalance;
+                payDebt = payerDebt.subtract(payInfo.getAmount());
+                receivedAmount = zero;
+                receivedDebt = payInfo.getAmount();
+            } else {
+                var payAmountLessThanOrEqualPayBalance = payInfo.getAmount().subtract(payerDebt).compareTo(payerBalance) <= 0;
+                var remaining = payInfo.getAmount().subtract(payerDebt);
+                if (payAmountLessThanOrEqualPayBalance) {
+                    payBalance = payerBalance.subtract(remaining);
+                    payDebt = zero;
+                    receivedAmount = payInfo.getAmount().subtract(payerDebt.abs());
+                    receivedDebt = payerDebt.abs();
+                } else {// 欠账
+                    payBalance = zero;
+                    payDebt = payerBalance.subtract(payInfo.getAmount());
+                    receivedAmount = payerBalance;
+                    receivedDebt = payDebt.abs();
+                }
+            }
+        } else {
+            throw new BusinessException("please return your debt firstly,thanks");
+        }
+
         var updatedPayerMainAccountInfo = UserMainAccountSummaryEntity
                 .builder()
                 .id(payerMainAccountInfo.getId())
                 .userName(payInfo.getFromName())
-                .depositsBalance(payerUpdatedBalance)
-                .outstandingDebt(payerUpdatedDebt)
-                .creditor(isMoreThanOrEqualToZero(payerUpdatedDebt) ? "" : payerMainAccountInfo.getCreditor())
+                .depositsBalance(payBalance)
+                .outstandingDebt(payDebt)
+                .creditor(getCreditorForPayer(payDebt, payerMainAccountInfo.getCreditor(), payInfo.getToName()))
                 .build();
         mainAccountSummaryRepo.save(updatedPayerMainAccountInfo);
-
-        var receivedAmount = payerUpdatedDebt.abs();
-        var updatedReceiverMainAccountInfo = getReceiverUpdatedAccountInfoForPay(payInfo.getToName(), receivedAmount, BigDecimal.ZERO);
-        mainAccountSummaryRepo.save(updatedReceiverMainAccountInfo);
-
-        // add transaction to summary
-        savePayTransactionSummary(payInfo);
+        var receiverUpdatedAccountInfo = getReceiverUpdatedAccountInfoForPayV2(payInfo.getToName(), receivedAmount, receivedDebt);
+        mainAccountSummaryRepo.save(receiverUpdatedAccountInfo);
         return updatedPayerMainAccountInfo.toModel();
     }
 
-    private AccountInfo payWithoutDebt(
-            UserMainAccountSummaryEntity payerMainAccountInfo,
-            PayInfo payInfo) throws JsonProcessingException {
-        var payerRemaining = payerMainAccountInfo.getDepositsBalance().subtract(payInfo.getAmount());
-        var isBiggerThanZero = payerRemaining.compareTo(BigDecimal.ZERO) > 0;
-        var payerUpdatedBalance = isBiggerThanZero ? payerRemaining : BigDecimal.ZERO;
-        var payerUpdatedDebt = isBiggerThanZero ? BigDecimal.ZERO : payerRemaining;
-        var updatedPayerMainAccountInfo = UserMainAccountSummaryEntity.builder()
-                .id(payerMainAccountInfo.getId())
-                .userName(payInfo.getFromName())
-                .depositsBalance(payerUpdatedBalance)
-                .outstandingDebt(payerUpdatedDebt)
-                .creditor(isBiggerThanZero ? "" : payInfo.getToName())
-                .build();
-        mainAccountSummaryRepo.save(updatedPayerMainAccountInfo);
-
-        var receivedBalance = payInfo.getAmount().subtract(payerUpdatedDebt.abs());
-        var receivedDebt = payerUpdatedDebt.abs();
-        var updatedReceiverMainAccountInfo = getReceiverUpdatedAccountInfoForPay(payInfo.getToName(), receivedBalance, receivedDebt);
-        mainAccountSummaryRepo.save(updatedReceiverMainAccountInfo);
-
-        // add transaction to summary
-        savePayTransactionSummary(payInfo);
-        return updatedPayerMainAccountInfo.toModel();
-    }
-
-    private UserMainAccountSummaryEntity getReceiverUpdatedAccountInfoForPay(String receivedName,
-                                                                             BigDecimal receivedAmount,
-                                                                             BigDecimal receivedDebt) {
-        var receiverMainAccountInfo = mainAccountSummaryRepo.findByUserName(receivedName);
-        var hasDebt = isLessThanZero(receiverMainAccountInfo.getOutstandingDebt());
-        BigDecimal receiverUpdateDebt;
-        BigDecimal receiverUpdatedBalance;
-        if (hasDebt) {
-            receiverUpdateDebt = receiverMainAccountInfo.getOutstandingDebt().add(receivedAmount);
-            receiverUpdatedBalance = receiverUpdateDebt.compareTo(BigDecimal.ZERO) > 0 ?
-                    receiverMainAccountInfo.getDepositsBalance().add(receiverUpdateDebt) : BigDecimal.ZERO;
+    private String getCreditorForPayer(BigDecimal debt, String OriginalDebtor, String toUser) {
+        if (isMoreThanZero(debt)) {
+            return OriginalDebtor;
+        } else if (debt.equals(zero)) {
+            return "";
         } else {
-            receiverUpdatedBalance = receiverMainAccountInfo.getDepositsBalance().add(receivedAmount);
-            receiverUpdateDebt = receiverMainAccountInfo.getOutstandingDebt().add(receivedDebt);
+            return toUser;
         }
+    }
+
+    private String getCreditorForReceiver(BigDecimal debt, String OriginalDebtor) {
+        if (isLessThanZero(debt)) {
+            return OriginalDebtor;
+        } else {
+            return "";
+        }
+    }
+
+    private UserMainAccountSummaryEntity getReceiverUpdatedAccountInfoForPayV2(String receivedName,
+                                                                               BigDecimal receivedAmount,
+                                                                               BigDecimal receivedDebt) {
+        var receiverMainAccountInfo = mainAccountSummaryRepo.findByUserName(receivedName);
+        var receiverUpdatedBalance = receiverMainAccountInfo.getDepositsBalance().add(receivedAmount);
+        var receiverUpdateDebt = receiverMainAccountInfo.getOutstandingDebt().add(receivedDebt);
+
         return UserMainAccountSummaryEntity.builder()
                 .id(receiverMainAccountInfo.getId())
                 .userName(receivedName)
                 .depositsBalance(receiverUpdatedBalance)
                 .outstandingDebt(receiverUpdateDebt)
-                .creditor(isMoreThanOrEqualToZero(receiverUpdateDebt) ? "" : receiverMainAccountInfo.getCreditor()).build();
-    }
-
-    private void savePayTransactionSummary(PayInfo payInfo) throws JsonProcessingException {
-        var transactionDetail = new TransactionDetail(payInfo.getAmount(),
-                List.of(new TransactionRecord(payInfo.getToName(), payInfo.getAmount())));
-        var payerRecord = TransactionSummaryEntity.builder()
-                .fromUser(payInfo.getFromName())
-                .toUser(payInfo.getToName())
-                .action(ACTION_PAY)
-                .transactionDetail(serializeToJsonString(transactionDetail)).build();
-
-        transactionSummaryRepo.save(payerRecord);
+                .creditor(getCreditorForReceiver(receiverUpdateDebt, receiverMainAccountInfo.getCreditor()))
+                .build();
     }
 
     private AccountInfo topupForDebtUser(UserMainAccountSummaryEntity payerMainAccountInfo, TopupInfo topupInfo) throws JsonProcessingException {
         // update sender and receiver account
+        var OriginalReceiver = payerMainAccountInfo.toModel().getCreditor();
         var payerRemainingAmount = payerMainAccountInfo.getOutstandingDebt().add(topupInfo.getAmount());
-        var isEnoughForDebt = payerRemainingAmount.compareTo(BigDecimal.ZERO) >= 0;
+        var isEnoughForDebt = payerRemainingAmount.compareTo(zero) >= 0;
         var payerUpdatedBalance = isEnoughForDebt ?
                 payerMainAccountInfo.getDepositsBalance().add(payerRemainingAmount) : payerMainAccountInfo.getDepositsBalance();
-        var payerUpdatedDebt = isEnoughForDebt ? BigDecimal.ZERO : payerRemainingAmount;
+        var payerUpdatedDebt = isEnoughForDebt ? zero : payerRemainingAmount;
         var payerCreditor = isEnoughForDebt ? "" : payerMainAccountInfo.getCreditor();
         var updatedPayerMainAccountInfo = getUpdatedMainAccount(topupInfo.getName(), payerUpdatedBalance, payerUpdatedDebt, payerCreditor);
         mainAccountSummaryRepo.save(updatedPayerMainAccountInfo);
 
-        var receiverName = payerMainAccountInfo.toModel().getCreditor();
-        var receiveAmount = payerMainAccountInfo.getOutstandingDebt().abs();
-        var receiverMainAccountInfo = mainAccountSummaryRepo.findByUserName(receiverName);
-        var receiverUpdateDebt = isEnoughForDebt ? BigDecimal.ZERO : receiveAmount;
+        // only for has debt with receive
+        var receiverMainAccountInfo = mainAccountSummaryRepo.findByUserName(OriginalReceiver);
+        var receivedDebt = payerMainAccountInfo.getOutstandingDebt().abs();
+        var receiverUpdateDebt = isEnoughForDebt ? zero : receivedDebt;
+        var receiverUpdateBalance = isEnoughForDebt ?
+                receiverMainAccountInfo.getDepositsBalance().add(receiverMainAccountInfo.getOutstandingDebt()) : receiverMainAccountInfo.getDepositsBalance().add(topupInfo.getAmount());
         var updatedReceiverMainAccountInfo = UserMainAccountSummaryEntity.builder()
                 .id(receiverMainAccountInfo.getId())
-                .userName(receiverName)
-                .depositsBalance(receiverMainAccountInfo.getDepositsBalance())//no change
+                .userName(OriginalReceiver)
+                .depositsBalance(receiverUpdateBalance)
                 .outstandingDebt(receiverUpdateDebt)
-                .creditor(isEnoughForDebt ? "" : receiverMainAccountInfo.getCreditor()).build();
+                .creditor(isEnoughForDebt ? "" : receiverMainAccountInfo.getCreditor())
+                .build();
         mainAccountSummaryRepo.save(updatedReceiverMainAccountInfo);
 
         // add transaction to summary
@@ -184,8 +183,8 @@ public class AccountService {
                 .totalAmount(topupInfo.getAmount())
                 .transactionRecordList(isEnoughForDebt ?
                         Arrays.asList(new TransactionRecord(topupInfo.getName(), payerRemainingAmount),
-                                new TransactionRecord(receiverName, receiveAmount))
-                        : List.of(new TransactionRecord(receiverName, topupInfo.getAmount()))
+                                new TransactionRecord(OriginalReceiver, receiverUpdateBalance))
+                        : List.of(new TransactionRecord(OriginalReceiver, topupInfo.getAmount()))
                 ).build();
 
         var payerRecord = TransactionSummaryEntity.builder()
@@ -247,8 +246,8 @@ public class AccountService {
         return amount.compareTo(BigDecimal.ZERO) > 0;
     }
 
-    private Boolean isMoreThanOrEqualToZero(BigDecimal amount) {
-        return amount.compareTo(BigDecimal.ZERO) >= 0;
+    private Boolean isLessThanOrEqualToZero(BigDecimal amount) {
+        return amount.compareTo(BigDecimal.ZERO) <= 0;
     }
 
     private Boolean isLessThanZero(BigDecimal amount) {
