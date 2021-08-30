@@ -49,7 +49,7 @@ public class AccountService {
 
     @Transient
     public AccountInfo topUpMoney(TopupInfo topupInfo) throws JsonProcessingException {
-
+        validUserInfoForTopup(topupInfo);
         var payerMainAccountInfo = mainAccountSummaryRepo.findByUserName(topupInfo.getName());
         // 1 no debt
         if (payerMainAccountInfo.getOutstandingDebt().compareTo(BigDecimal.ZERO) >= 0) {
