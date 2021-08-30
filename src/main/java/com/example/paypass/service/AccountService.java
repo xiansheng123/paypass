@@ -67,7 +67,7 @@ public class AccountService {
         BigDecimal receivedDebt;// should be negative;
         BigDecimal payBalance;
         BigDecimal payDebt;
-        // check debit
+
         BigDecimal payerDebt = payerMainAccountInfo.getOutstandingDebt();
         BigDecimal payerBalance = payerMainAccountInfo.getDepositsBalance();
         if (isMoreThanZero(payerBalance)) {
@@ -85,7 +85,7 @@ public class AccountService {
                     payDebt = zero;
                     receivedAmount = payInfo.getAmount().subtract(payerDebt.abs());
                     receivedDebt = payerDebt.abs();
-                } else {// 欠账
+                } else {
                     payBalance = zero;
                     payDebt = payerBalance.subtract(payInfo.getAmount());
                     receivedAmount = payerBalance;
@@ -95,7 +95,7 @@ public class AccountService {
         } else {
             throw new BusinessException("please return your debt firstly,thanks");
         }
-
+        //update payer
         var updatedPayerMainAccountInfo = UserMainAccountSummaryEntity
                 .builder()
                 .id(payerMainAccountInfo.getId())
@@ -105,6 +105,8 @@ public class AccountService {
                 .creditor(getCreditorForPayer(payDebt, payerMainAccountInfo.getCreditor(), payInfo.getToName()))
                 .build();
         mainAccountSummaryRepo.save(updatedPayerMainAccountInfo);
+
+        //update receiver
         var receiverUpdatedAccountInfo = getReceiverUpdatedAccountInfoForPayV2(payInfo.getToName(), receivedAmount, receivedDebt);
         mainAccountSummaryRepo.save(receiverUpdatedAccountInfo);
         return updatedPayerMainAccountInfo.toModel();
