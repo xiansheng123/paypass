@@ -39,7 +39,7 @@ public class AccountServiceTest {
     class topup {
         @Test
         public void topupForNoDebtUser() throws JsonProcessingException {
-            var name = "Bob";
+            var name = "Bob1";
             var topupInfo = new TopupInfo(name, new BigDecimal(100));
             var zero = BigDecimal.ZERO;
             when(mainAccountSummaryRepo.findByUserName(name)).thenReturn(
@@ -50,7 +50,7 @@ public class AccountServiceTest {
                             .outstandingDebt(zero)
                             .creditor("")
                             .build());
-
+            when(userService.isValidUser(any())).thenReturn(true);
             when(mainAccountSummaryRepo.save(any())).thenReturn(createMainAccount());
             when(transactionSummaryRepo.save(any())).
                     thenReturn(createTransactionSummaryEntity());
@@ -65,10 +65,10 @@ public class AccountServiceTest {
 
         @Test
         public void topupForDebtUser() throws JsonProcessingException {
-            var name = "Bob";
+            var name = "Bob1";
             var topupInfo = new TopupInfo(name, new BigDecimal(100));
             var zero = BigDecimal.ZERO;
-            var receiver = "Alice";
+            var receiver = "Alice1";
             when(
                     mainAccountSummaryRepo.findByUserName(name)
             ).thenReturn(
@@ -80,6 +80,7 @@ public class AccountServiceTest {
                             .creditor(receiver)
                             .build()
             );
+            when(userService.isValidUser(any())).thenReturn(true);
             when(mainAccountSummaryRepo.findByUserName(receiver)).thenReturn(
                     UserMainAccountSummaryEntity.builder()
                             .id(2)
